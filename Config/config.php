@@ -15,7 +15,8 @@ return [
                     'objectId' => 0,
                 ],
             ],
-            // Webhook endpoint — public, no Mautic auth required (uses webhook_secret header)
+        ],
+        'public' => [
             'mautic_plugin_whatsaas_webhook' => [
                 'path'       => '/whatsaas/webhook',
                 'controller' => 'MauticPlugin\WhatSaasBundle\Controller\Api\WebhookController::receiveAction',
