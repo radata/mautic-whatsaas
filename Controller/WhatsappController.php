@@ -14,7 +14,7 @@ use Symfony\Component\HttpFoundation\Response;
 
 class WhatsappController extends FormController
 {
-    public const PLUGIN_VERSION = '1.4.0';
+    public const PLUGIN_VERSION = '1.4.1';
 
     public function sendWhatsappAction(
         Request $request,
@@ -55,30 +55,31 @@ class WhatsappController extends FormController
             return new JsonResponse(['closeModal' => true, 'flashes' => $this->getFlashContent(), 'v' => self::PLUGIN_VERSION]);
         }
 
-        // Load SMS templates for dropdown
         /** @var \Mautic\SmsBundle\Model\SmsModel $smsModel */
         $smsModel = $this->getModel('sms');
-        $templateChoices  = [];
-        $templateMessages = [];
-        $smsList = $smsModel->getRepository()->getSmsList('', 0);
-        foreach ($smsList as $sms) {
-            $templateChoices[$sms['name']] = (string) $sms['id'];
-        }
-
-        // Load message content for each template (for JS auto-fill)
-        if (!empty($templateChoices)) {
-            foreach ($templateChoices as $name => $id) {
-                $smsEntity = $smsModel->getEntity((int) $id);
-                if ($smsEntity && $smsEntity->isPublished()) {
-                    $templateMessages[$id] = $smsEntity->getMessage();
-                } else {
-                    // Remove unpublished from choices
-                    unset($templateChoices[$name]);
-                }
-            }
-        }
 
         if ('GET' === $request->getMethod()) {
+            // Load SMS templates for dropdown (same signature as Zender SMS)
+            $templateChoices  = [];
+            $templateMessages = [];
+            try {
+                $smsList = $smsModel->getRepository()->getSmsList('', 0, 0, true);
+                foreach ($smsList as $sms) {
+                    $templateChoices[$sms['name']] = (string) $sms['id'];
+                }
+
+                // Load message content for each template (for JS auto-fill)
+                foreach ($templateChoices as $name => $id) {
+                    $smsEntity = $smsModel->getEntity((int) $id);
+                    if ($smsEntity && $smsEntity->isPublished()) {
+                        $templateMessages[$id] = $smsEntity->getMessage();
+                    } else {
+                        unset($templateChoices[$name]);
+                    }
+                }
+            } catch (\Throwable $e) {
+                // If SMS templates fail to load, continue without them
+            }
             $route = $this->generateUrl(
                 'mautic_plugin_whatsaas_action',
                 ['objectAction' => 'sendWhatsapp']
