@@ -1,0 +1,23 @@
+{
+    "name": "radata/mautic-whatsaas",
+    "description": "Mautic WhatsApp transport plugin for WhatSaaS / Evolution API with multi-channel support",
+    "type": "mautic-plugin",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Radata"
+        }
+    ],
+    "require": {
+        "php": ">=8.0",
+        "mautic/core-lib": "^7.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "MauticPlugin\\WhatSaasBundle\\": ""
+        }
+    },
+    "extra": {
+        "install-directory-name": "WhatSaasBundle"
+    }
+}

@@ -1,0 +1,174 @@
+<?php
+
+namespace MauticPlugin\WhatSaasBundle\Controller;
+
+use Mautic\CoreBundle\Controller\FormController;
+use Mautic\SmsBundle\Entity\Stat;
+use MauticPlugin\WhatSaasBundle\Form\Type\SendWhatsappType;
+use MauticPlugin\WhatSaasBundle\Transport\Configuration;
+use MauticPlugin\WhatSaasBundle\Transport\ConfigurationException;
+use MauticPlugin\WhatSaasBundle\Transport\WhatSaasTransport;
+use Symfony\Component\HttpFoundation\JsonResponse;
+use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\HttpFoundation\Response;
+
+class WhatsappController extends FormController
+{
+    public function sendWhatsappAction(
+        Request $request,
+        WhatSaasTransport $transport,
+        Configuration $configuration,
+        $objectId = '',
+    ): JsonResponse|Response {
+        if ('POST' === $request->getMethod()) {
+            $data     = $request->request->all()['whatsaas_send'] ?? [];
+            $objectId = $data['contactId'] ?? $objectId;
+        }
+
+        $leadModel = $this->getModel('lead');
+        $lead      = $leadModel->getEntity($objectId);
+
+        if (!$lead) {
+            $this->addFlashMessage('mautic.lead.lead.error.notfound', [], 'error');
+
+            return new JsonResponse(['closeModal' => true, 'flashes' => $this->getFlashContent()]);
+        }
+
+        if (!$this->security->hasEntityAccess(
+            'lead:leads:editown',
+            'lead:leads:editother',
+            $lead->getPermissionUser()
+        )) {
+            $this->addFlashMessage('mautic.core.error.accessdenied', [], 'error');
+
+            return new JsonResponse(['closeModal' => true, 'flashes' => $this->getFlashContent()]);
+        }
+
+        // Get channel choices for the form
+        try {
+            $channelChoices = $configuration->getChannelChoices();
+        } catch (ConfigurationException $e) {
+            $this->addFlashMessage('whatsaas.send.error.not_configured', ['%error%' => $e->getMessage()], 'error');
+
+            return new JsonResponse(['closeModal' => true, 'flashes' => $this->getFlashContent()]);
+        }
+
+        if ('GET' === $request->getMethod()) {
+            $route = $this->generateUrl(
+                'mautic_plugin_whatsaas_action',
+                ['objectAction' => 'sendWhatsapp']
+            );
+
+            return $this->delegateView([
+                'viewParameters' => [
+                    'form' => $this->createForm(
+                        SendWhatsappType::class,
+                        ['contactId' => (string) $objectId],
+                        ['action' => $route, 'channel_choices' => $channelChoices]
+                    )->createView(),
+                    'contact' => $lead,
+                ],
+                'contentTemplate' => '@WhatSaas/SendWhatsapp/form.html.twig',
+                'passthroughVars' => [
+                    'activeLink'    => '#mautic_contact_index',
+                    'mauticContent' => 'lead',
+                    'route'         => $route,
+                ],
+            ]);
+        }
+
+        if ('POST' === $request->getMethod()) {
+            $channelInstance = $data['channel'] ?? null;
+            $messageType     = $data['messageType'] ?? 'text';
+            $message         = trim($data['message'] ?? '');
+            $mediaUrl        = trim($data['mediaUrl'] ?? '');
+
+            if (empty($message)) {
+                $this->addFlashMessage('whatsaas.send.error.no_message', [], 'error');
+
+                return new JsonResponse(['closeModal' => true, 'flashes' => $this->getFlashContent()]);
+            }
+
+            if ('text' !== $messageType && empty($mediaUrl)) {
+                $this->addFlashMessage('whatsaas.send.error.no_media', [], 'error');
+
+                return new JsonResponse(['closeModal' => true, 'flashes' => $this->getFlashContent()]);
+            }
+
+            // Check WhatsApp DNC
+            if ($transport->isDnc($lead)) {
+                $this->addFlashMessage('whatsaas.send.error.dnc', [], 'error');
+
+                return new JsonResponse(['closeModal' => true, 'flashes' => $this->getFlashContent()]);
+            }
+
+            // Replace tokens in message
+            $message = str_replace(
+                ['{contactfield=firstname}', '{contactfield=lastname}', '{contactfield=email}', '{contactfield=phone}', '{contactfield=mobile}', '{contactfield=whatsapp}'],
+                [$lead->getFirstname(), $lead->getLastname(), $lead->getEmail(), $lead->getPhone(), $lead->getMobile(), $lead->getFieldValue('whatsapp') ?? ''],
+                $message
+            );
+
+            // Get recipient phone number (whatsapp field → mobile → phone)
+            $recipient = $transport->getWhatsappNumber($lead);
+            if (empty($recipient)) {
+                $this->addFlashMessage('whatsaas.send.error.no_phone', [], 'error');
+
+                return new JsonResponse(['closeModal' => true, 'flashes' => $this->getFlashContent()]);
+            }
+
+            // Normalize phone number
+            $recipient = preg_replace('/[\s\-\(\)]/', '', $recipient);
+            if (!str_starts_with($recipient, '+')) {
+                $recipient = str_starts_with($recipient, '0')
+                    ? '+31'.substr($recipient, 1)
+                    : '+'.$recipient;
+            }
+
+            $result = $transport->sendWhatsapp(
+                $recipient,
+                $messageType,
+                $message,
+                'text' !== $messageType ? $mediaUrl : null,
+                $channelInstance,
+            );
+
+            // Create stat entry for activity tracking
+            /** @var \Mautic\SmsBundle\Model\SmsModel $smsModel */
+            $smsModel = $this->getModel('sms');
+
+            $stat = new Stat();
+            $stat->setDateSent(new \DateTime());
+            $stat->setLead($lead);
+            $stat->setTrackingHash(str_replace('.', '', uniqid('', true)));
+            $stat->setSource('api');
+
+            $details = [
+                'message' => $message,
+                'type'    => $messageType,
+                'channel' => 'whatsapp',
+                'instance' => $channelInstance,
+            ];
+
+            if ('text' !== $messageType) {
+                $details['media_url'] = $mediaUrl;
+            }
+
+            if (true === $result) {
+                $stat->setDetails($details);
+                $this->addFlashMessage('whatsaas.send.success');
+            } else {
+                $stat->setIsFailed(true);
+                $details['error'] = $result;
+                $stat->setDetails($details);
+                $this->addFlashMessage('whatsaas.send.error.failed_detail', ['%error%' => $result], 'error');
+            }
+
+            $smsModel->getStatRepository()->saveEntity($stat);
+
+            return new JsonResponse(['closeModal' => true, 'flashes' => $this->getFlashContent()]);
+        }
+
+        return new Response('Bad Request', 400);
+    }
+}

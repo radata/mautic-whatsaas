@@ -1,0 +1,35 @@
+<div class="modal-body">
+    <div class="alert alert-info">
+        {{ 'whatsaas.send.description'|trans({'%contact%': contact.getName()}) }}
+    </div>
+
+    <div class="alert alert-warning">
+        <strong>Let op!</strong> Gebruiker moet goedkeuring vooraf hebben gegeven!
+    </div>
+
+    {{ form_start(form) }}
+
+    {% if form.channel is defined %}
+        {{ form_row(form.channel) }}
+    {% endif %}
+
+    {{ form_row(form.messageType) }}
+    {{ form_row(form.message) }}
+
+    <div id="whatsaas-media-fields" style="display:none;">
+        {{ form_row(form.mediaUrl) }}
+    </div>
+
+    {{ form_row(form.contactId) }}
+    {{ form_row(form.buttons) }}
+    {{ form_end(form) }}
+</div>
+
+<script>
+var WhatSaaS = {
+    toggleFields: function(type) {
+        var mediaFields = document.getElementById('whatsaas-media-fields');
+        mediaFields.style.display = (type !== 'text') ? 'block' : 'none';
+    }
+};
+</script>
