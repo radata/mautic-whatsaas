@@ -12,7 +12,7 @@ class WhatSaasIntegration extends AbstractIntegration
 
     public function getName(): string
     {
-        return 'WhatSaaS';
+        return 'WhatSaas';
     }
 
     public function getDisplayName(): string

@@ -40,7 +40,7 @@ class WebhookController extends CommonController
 
         // Verify webhook secret if configured
         try {
-            $integration = $integrationHelper->getIntegrationObject('WhatSaaS');
+            $integration = $integrationHelper->getIntegrationObject('WhatSaas');
             if (!$integration || !$integration->getIntegrationSettings()->getIsPublished()) {
                 throw new ConfigurationException('WhatSaaS integration is not enabled');
             }

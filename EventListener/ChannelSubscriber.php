@@ -31,7 +31,7 @@ class ChannelSubscriber implements EventSubscriberInterface
 
     public function onAddChannel(ChannelEvent $event): void
     {
-        $integration = $this->integrationHelper->getIntegrationObject('WhatSaaS');
+        $integration = $this->integrationHelper->getIntegrationObject('WhatSaas');
 
         if (false === $integration || !$integration->getIntegrationSettings()->getIsPublished()) {
             return;

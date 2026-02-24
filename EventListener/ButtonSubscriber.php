@@ -28,7 +28,7 @@ class ButtonSubscriber implements EventSubscriberInterface
 
     public function injectViewButtons(CustomButtonEvent $event): void
     {
-        $myIntegration = $this->helper->getIntegrationObject('WhatSaaS');
+        $myIntegration = $this->helper->getIntegrationObject('WhatSaas');
 
         if (false === $myIntegration || !$myIntegration->getIntegrationSettings()->getIsPublished()) {
             return;

@@ -111,8 +111,8 @@ return [
                 ],
                 'tag'          => 'mautic.sms_transport',
                 'tagArguments' => [
-                    'channel'          => 'WhatSaaS',
-                    'integrationAlias' => 'WhatSaaS',
+                    'channel'          => 'WhatSaas',
+                    'integrationAlias' => 'WhatSaas',
                 ],
             ],
         ],

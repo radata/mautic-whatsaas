@@ -103,7 +103,7 @@ class Configuration
             return;
         }
 
-        $integration = $this->integrationHelper->getIntegrationObject('WhatSaaS');
+        $integration = $this->integrationHelper->getIntegrationObject('WhatSaas');
         if (!$integration || !$integration->getIntegrationSettings()->getIsPublished()) {
             throw new ConfigurationException('WhatSaaS integration is not enabled');
         }
