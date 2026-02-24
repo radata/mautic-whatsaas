@@ -3,7 +3,7 @@
 return [
     'name'        => 'WhatSaaS WhatsApp',
     'description' => 'Multi-channel WhatsApp transport for WhatSaaS / Evolution API with webhook support',
-    'version'     => '1.3.1',
+    'version'     => '1.3.2',
     'author'      => 'Radata',
 
     'routes' => [
@@ -11,6 +11,9 @@ return [
             'mautic_plugin_whatsaas_action' => [
                 'path'       => '/whatsaas/{objectAction}/{objectId}',
                 'controller' => 'MauticPlugin\WhatSaasBundle\Controller\WhatsappController::executeAction',
+                'defaults'   => [
+                    'objectId' => 0,
+                ],
             ],
             // Webhook endpoint — public, no Mautic auth required (uses webhook_secret header)
             'mautic_plugin_whatsaas_webhook' => [
