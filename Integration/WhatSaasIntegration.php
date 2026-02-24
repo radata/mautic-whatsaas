@@ -47,10 +47,10 @@ class WhatSaasIntegration extends AbstractIntegration
             [
                 'label'    => 'whatsaas.config.api_url',
                 'required' => true,
-                'data'     => $data['api_url'] ?? 'http://evolution:8080',
+                'data'     => $data['api_url'] ?? 'http://whats-saas-app:3000',
                 'attr'     => [
                     'class'       => 'form-control',
-                    'placeholder' => 'http://evolution:8080',
+                    'placeholder' => 'http://whats-saas-app:3000',
                 ],
             ]
         );
@@ -91,7 +91,7 @@ class WhatSaasIntegration extends AbstractIntegration
         return json_encode([
             [
                 'name'         => 'My WhatsApp',
-                'apiKey'       => 'your-evolution-api-global-key',
+                'apiKey'       => 'sk_live_your-whatsaas-api-key',
                 'instanceName' => 'HW-9908',
                 'default'      => true,
             ],

@@ -124,11 +124,11 @@ class WhatSaasTransport implements TransportInterface
     }
 
     /**
-     * Send via Evolution API.
+     * Send via WhatSaaS API.
      *
-     * Text:     POST /message/sendText/{instance}     {"number":"...","text":"..."}
-     * Media:    POST /message/sendMedia/{instance}     {"number":"...","mediatype":"image|video|document","media":"url","caption":"text"}
-     * Audio:    POST /message/sendWhatsAppAudio/{instance} {"number":"...","audio":"url"}
+     * POST /api/v1/send
+     * Authorization: Bearer <apiKey>
+     * Body: {"instanceName":"...","number":"...","type":"text|image|video|document|audio","message":"...","mediaUrl":"..."}
      */
     private function send(
         string $apiUrl,
@@ -139,36 +139,20 @@ class WhatSaasTransport implements TransportInterface
         ?string $mediaUrl = null,
     ): bool|string {
         $instance = $channel['instanceName'];
-        $apiUrl   = rtrim($apiUrl, '/');
+        $url      = rtrim($apiUrl, '/').'/api/v1/send';
 
-        // Strip '+' from number — Evolution API expects digits only
+        // Strip '+' from number
         $number = ltrim($recipient, '+');
 
-        // Build endpoint URL and payload based on message type
-        if ('text' === $type || empty($mediaUrl)) {
-            $url     = $apiUrl.'/message/sendText/'.$instance;
-            $payload = [
-                'number' => $number,
-                'text'   => $message,
-            ];
-        } elseif ('audio' === $type) {
-            $url     = $apiUrl.'/message/sendWhatsAppAudio/'.$instance;
-            $payload = [
-                'number' => $number,
-                'audio'  => $mediaUrl,
-            ];
-        } else {
-            // image, video, document
-            $url     = $apiUrl.'/message/sendMedia/'.$instance;
-            $payload = [
-                'number'    => $number,
-                'mediatype' => $type,
-                'media'     => $mediaUrl,
-                'caption'   => $message,
-            ];
-            if ('document' === $type) {
-                $payload['fileName'] = basename(parse_url($mediaUrl, PHP_URL_PATH) ?: 'document');
-            }
+        $payload = [
+            'instanceName' => $instance,
+            'number'       => $number,
+            'type'         => $type,
+            'message'      => $message,
+        ];
+
+        if (!empty($mediaUrl) && 'text' !== $type) {
+            $payload['mediaUrl'] = $mediaUrl;
         }
 
         $ch = curl_init();
@@ -181,7 +165,7 @@ class WhatSaasTransport implements TransportInterface
             CURLOPT_HTTPHEADER     => [
                 'Content-Type: application/json',
                 'Accept: application/json',
-                'apikey: '.$channel['apiKey'],
+                'Authorization: Bearer '.$channel['apiKey'],
             ],
         ]);
 
@@ -193,7 +177,7 @@ class WhatSaasTransport implements TransportInterface
         if (!empty($error)) {
             $this->logger->error('WhatSaaS cURL error: '.$error);
 
-            return 'Evolution API error: '.$error;
+            return 'WhatSaaS API error: '.$error;
         }
 
         $data = json_decode($response, true);
@@ -205,30 +189,26 @@ class WhatSaasTransport implements TransportInterface
                 'response' => substr($response, 0, 500),
             ]);
 
-            return 'Evolution API: invalid response (HTTP '.$httpCode.')';
+            return 'WhatSaaS API: invalid response (HTTP '.$httpCode.')';
         }
 
-        // Evolution API returns 200/201 on success with a "key" object
-        if ($httpCode >= 200 && $httpCode < 300) {
+        // WhatSaaS returns {"success":true,"data":{...}} on success
+        if (!empty($data['success'])) {
             $this->logger->info('WhatSaaS WhatsApp sent successfully', [
                 'recipient' => $recipient,
                 'type'      => $type,
                 'instance'  => $instance,
-                'messageId' => $data['key']['id'] ?? null,
+                'messageId' => $data['data']['key']['id'] ?? null,
             ]);
 
             return true;
         }
 
-        $errorMsg = $data['response']['message'][0]
-            ?? $data['message'][0]
-            ?? $data['error']
-            ?? $data['message']
-            ?? 'Unknown error';
+        $errorMsg = $data['error'] ?? $data['message'] ?? 'Unknown error';
         if (is_array($errorMsg)) {
             $errorMsg = implode(', ', $errorMsg);
         }
-        $maskedKey = substr($channel['apiKey'], 0, 8).'...'.substr($channel['apiKey'], -4);
+        $maskedKey = substr($channel['apiKey'], 0, 12).'...';
         $this->logger->warning('WhatSaaS send failed: '.$errorMsg, [
             'url'       => $url,
             'instance'  => $instance,
@@ -239,9 +219,8 @@ class WhatSaasTransport implements TransportInterface
         ]);
 
         return sprintf(
-            'Evolution API: %s [url=%s, instance=%s, key=%s, http=%d]',
+            'WhatSaaS: %s [instance=%s, key=%s, http=%d]',
             $errorMsg,
-            $url,
             $instance,
             $maskedKey,
             $httpCode
