@@ -13,6 +13,13 @@
         {{ form_row(form.channel) }}
     {% endif %}
 
+    {% if form.smsTemplate is defined %}
+        {{ form_row(form.smsTemplate) }}
+        <div class="text-center text-muted mb-2" style="margin: -5px 0 10px; font-size: 12px;">
+            &mdash; {{ 'whatsaas.send.or_custom_message'|trans }} &mdash;
+        </div>
+    {% endif %}
+
     {{ form_row(form.messageType) }}
     {{ form_row(form.message) }}
 
@@ -27,9 +34,16 @@
 
 <script>
 var WhatSaaS = {
+    templates: {{ templateMessages|json_encode|raw }},
     toggleFields: function(type) {
         var mediaFields = document.getElementById('whatsaas-media-fields');
         mediaFields.style.display = (type !== 'text') ? 'block' : 'none';
+    },
+    loadTemplate: function(select) {
+        var templateId = select.value;
+        if (templateId && WhatSaaS.templates[templateId]) {
+            document.getElementById('whatsaas_send_message').value = WhatSaaS.templates[templateId];
+        }
     }
 };
 </script>

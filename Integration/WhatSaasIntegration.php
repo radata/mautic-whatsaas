@@ -47,10 +47,10 @@ class WhatSaasIntegration extends AbstractIntegration
             [
                 'label'    => 'whatsaas.config.api_url',
                 'required' => true,
-                'data'     => $data['api_url'] ?? 'https://wa.hollandworx.nl',
+                'data'     => $data['api_url'] ?? 'http://evolution:8080',
                 'attr'     => [
                     'class'       => 'form-control',
-                    'placeholder' => 'https://your-whatsaas-instance.com',
+                    'placeholder' => 'http://evolution:8080',
                 ],
             ]
         );
@@ -90,9 +90,9 @@ class WhatSaasIntegration extends AbstractIntegration
     {
         return json_encode([
             [
-                'name'         => 'Main Business',
-                'apiKey'       => 'sk_live_your_api_key_here',
-                'instanceName' => 'my-instance-name',
+                'name'         => 'My WhatsApp',
+                'apiKey'       => 'your-evolution-api-global-key',
+                'instanceName' => 'HW-9908',
                 'default'      => true,
             ],
         ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);

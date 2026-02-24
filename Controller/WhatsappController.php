@@ -14,7 +14,7 @@ use Symfony\Component\HttpFoundation\Response;
 
 class WhatsappController extends FormController
 {
-    public const PLUGIN_VERSION = '1.3.4';
+    public const PLUGIN_VERSION = '1.4.0';
 
     public function sendWhatsappAction(
         Request $request,
@@ -55,6 +55,29 @@ class WhatsappController extends FormController
             return new JsonResponse(['closeModal' => true, 'flashes' => $this->getFlashContent(), 'v' => self::PLUGIN_VERSION]);
         }
 
+        // Load SMS templates for dropdown
+        /** @var \Mautic\SmsBundle\Model\SmsModel $smsModel */
+        $smsModel = $this->getModel('sms');
+        $templateChoices  = [];
+        $templateMessages = [];
+        $smsList = $smsModel->getRepository()->getSmsList('', 0);
+        foreach ($smsList as $sms) {
+            $templateChoices[$sms['name']] = (string) $sms['id'];
+        }
+
+        // Load message content for each template (for JS auto-fill)
+        if (!empty($templateChoices)) {
+            foreach ($templateChoices as $name => $id) {
+                $smsEntity = $smsModel->getEntity((int) $id);
+                if ($smsEntity && $smsEntity->isPublished()) {
+                    $templateMessages[$id] = $smsEntity->getMessage();
+                } else {
+                    // Remove unpublished from choices
+                    unset($templateChoices[$name]);
+                }
+            }
+        }
+
         if ('GET' === $request->getMethod()) {
             $route = $this->generateUrl(
                 'mautic_plugin_whatsaas_action',
@@ -66,9 +89,14 @@ class WhatsappController extends FormController
                     'form' => $this->createForm(
                         SendWhatsappType::class,
                         ['contactId' => (string) $objectId],
-                        ['action' => $route, 'channel_choices' => $channelChoices]
+                        [
+                            'action'           => $route,
+                            'channel_choices'  => $channelChoices,
+                            'template_choices' => $templateChoices,
+                        ]
                     )->createView(),
-                    'contact' => $lead,
+                    'contact'          => $lead,
+                    'templateMessages' => $templateMessages,
                 ],
                 'contentTemplate' => '@WhatSaas/SendWhatsapp/form.html.twig',
                 'passthroughVars' => [
@@ -84,6 +112,15 @@ class WhatsappController extends FormController
             $messageType     = $data['messageType'] ?? 'text';
             $message         = trim($data['message'] ?? '');
             $mediaUrl        = trim($data['mediaUrl'] ?? '');
+            $smsTemplateId   = $data['smsTemplate'] ?? null;
+
+            // If template selected and no custom message, use template content
+            if (!empty($smsTemplateId) && empty($message)) {
+                $smsEntity = $smsModel->getEntity((int) $smsTemplateId);
+                if ($smsEntity) {
+                    $message = $smsEntity->getMessage();
+                }
+            }
 
             if (empty($message)) {
                 $this->addFlashMessage('whatsaas.send.error.no_message', [], 'error');
@@ -136,19 +173,24 @@ class WhatsappController extends FormController
             );
 
             // Create stat entry for activity tracking
-            /** @var \Mautic\SmsBundle\Model\SmsModel $smsModel */
-            $smsModel = $this->getModel('sms');
-
             $stat = new Stat();
             $stat->setDateSent(new \DateTime());
             $stat->setLead($lead);
             $stat->setTrackingHash(str_replace('.', '', uniqid('', true)));
             $stat->setSource('api');
 
+            // Link to SMS template if used
+            if (!empty($smsTemplateId)) {
+                $smsEntity = $smsModel->getEntity((int) $smsTemplateId);
+                if ($smsEntity) {
+                    $stat->setSms($smsEntity);
+                }
+            }
+
             $details = [
-                'message' => $message,
-                'type'    => $messageType,
-                'channel' => 'whatsapp',
+                'message'  => $message,
+                'type'     => $messageType,
+                'channel'  => 'whatsapp',
                 'instance' => $channelInstance,
             ];
 

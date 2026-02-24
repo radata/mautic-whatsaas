@@ -39,6 +39,26 @@ class SendWhatsappType extends AbstractType
             );
         }
 
+        // SMS Template selector
+        $templateChoices = $options['template_choices'] ?? [];
+        if (!empty($templateChoices)) {
+            $builder->add(
+                'smsTemplate',
+                ChoiceType::class,
+                [
+                    'label'       => 'whatsaas.send.sms_template',
+                    'label_attr'  => ['class' => 'control-label'],
+                    'attr'        => [
+                        'class'    => 'form-control',
+                        'onchange' => 'WhatSaaS.loadTemplate(this)',
+                    ],
+                    'choices'     => $templateChoices,
+                    'required'    => false,
+                    'placeholder' => 'whatsaas.send.sms_template_placeholder',
+                ]
+            );
+        }
+
         $builder->add(
             'messageType',
             ChoiceType::class,
@@ -71,7 +91,7 @@ class SendWhatsappType extends AbstractType
                     'rows'        => 4,
                     'placeholder' => 'whatsaas.send.message_placeholder',
                 ],
-                'required' => true,
+                'required' => false,
             ]
         );
 
@@ -110,7 +130,8 @@ class SendWhatsappType extends AbstractType
     public function configureOptions(OptionsResolver $resolver): void
     {
         $resolver->setDefaults([
-            'channel_choices' => [],
+            'channel_choices'  => [],
+            'template_choices' => [],
         ]);
     }
 
