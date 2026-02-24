@@ -27,7 +27,7 @@ Mautic 7.x plugin for sending and receiving WhatsApp messages via [WhatSaaS](htt
 Ensure the composer and npm directories exist with correct permissions:
 
 ```bash
-docker exec --user root mautic_web mkdir -p /var/www/.composer/cache
+docker exec --user root mautic_web mkdir -p /var/www/.composer/cache/files /var/www/.composer/cache/repo /var/www/.composer/cache/vcs
 docker exec --user root mautic_web chown -R www-data:www-data /var/www/.composer
 docker exec --user root mautic_web mkdir -p /var/www/.npm
 docker exec --user root mautic_web chown -R www-data:www-data /var/www/.npm
