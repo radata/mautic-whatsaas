@@ -71,10 +71,13 @@ docker exec --user www-data --workdir /var/www/html mautic_web php bin/console m
 ### Update
 
 ```bash
+docker exec --user www-data mautic_web rm -rf /var/www/html/vendor/composer/cache && \
+docker exec --user www-data mautic_web composer clear-cache --working-dir=/var/www/html && \
 docker exec --user www-data --workdir /var/www/html mautic_web \
-  composer clear-cache && \
-docker exec --user www-data --workdir /var/www/html mautic_web \
-  composer update radata/mautic-whatsaas -W --no-interaction --ignore-platform-req=ext-gd
+  composer update radata/mautic-whatsaas:dev-main -W --no-interaction --ignore-platform-req=ext-gd && \
+docker exec mautic_web grep "return 'What" /var/www/html/docroot/plugins/WhatSaasBundle/Integration/WhatSaasIntegration.php && \
+docker exec mautic_web grep "version" /var/www/html/docroot/plugins/WhatSaasBundle/Config/config.php
+
 docker exec --user www-data mautic_web rm -rf /var/www/html/var/cache/prod
 docker exec --user www-data --workdir /var/www/html mautic_web php bin/console cache:warmup --env=prod
 docker exec --user www-data --workdir /var/www/html mautic_web php bin/console mautic:plugins:reload

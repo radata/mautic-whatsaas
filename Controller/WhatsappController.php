@@ -14,6 +14,8 @@ use Symfony\Component\HttpFoundation\Response;
 
 class WhatsappController extends FormController
 {
+    public const PLUGIN_VERSION = '1.3.3';
+
     public function sendWhatsappAction(
         Request $request,
         WhatSaasTransport $transport,
@@ -31,7 +33,7 @@ class WhatsappController extends FormController
         if (!$lead) {
             $this->addFlashMessage('mautic.lead.lead.error.notfound', [], 'error');
 
-            return new JsonResponse(['closeModal' => true, 'flashes' => $this->getFlashContent()]);
+            return new JsonResponse(['closeModal' => true, 'flashes' => $this->getFlashContent(), 'v' => self::PLUGIN_VERSION]);
         }
 
         if (!$this->security->hasEntityAccess(
@@ -41,7 +43,7 @@ class WhatsappController extends FormController
         )) {
             $this->addFlashMessage('mautic.core.error.accessdenied', [], 'error');
 
-            return new JsonResponse(['closeModal' => true, 'flashes' => $this->getFlashContent()]);
+            return new JsonResponse(['closeModal' => true, 'flashes' => $this->getFlashContent(), 'v' => self::PLUGIN_VERSION]);
         }
 
         // Get channel choices for the form
@@ -50,7 +52,7 @@ class WhatsappController extends FormController
         } catch (ConfigurationException $e) {
             $this->addFlashMessage('whatsaas.send.error.not_configured', ['%error%' => $e->getMessage()], 'error');
 
-            return new JsonResponse(['closeModal' => true, 'flashes' => $this->getFlashContent()]);
+            return new JsonResponse(['closeModal' => true, 'flashes' => $this->getFlashContent(), 'v' => self::PLUGIN_VERSION]);
         }
 
         if ('GET' === $request->getMethod()) {
@@ -86,20 +88,20 @@ class WhatsappController extends FormController
             if (empty($message)) {
                 $this->addFlashMessage('whatsaas.send.error.no_message', [], 'error');
 
-                return new JsonResponse(['closeModal' => true, 'flashes' => $this->getFlashContent()]);
+                return new JsonResponse(['closeModal' => true, 'flashes' => $this->getFlashContent(), 'v' => self::PLUGIN_VERSION]);
             }
 
             if ('text' !== $messageType && empty($mediaUrl)) {
                 $this->addFlashMessage('whatsaas.send.error.no_media', [], 'error');
 
-                return new JsonResponse(['closeModal' => true, 'flashes' => $this->getFlashContent()]);
+                return new JsonResponse(['closeModal' => true, 'flashes' => $this->getFlashContent(), 'v' => self::PLUGIN_VERSION]);
             }
 
             // Check WhatsApp DNC
             if ($transport->isDnc($lead)) {
                 $this->addFlashMessage('whatsaas.send.error.dnc', [], 'error');
 
-                return new JsonResponse(['closeModal' => true, 'flashes' => $this->getFlashContent()]);
+                return new JsonResponse(['closeModal' => true, 'flashes' => $this->getFlashContent(), 'v' => self::PLUGIN_VERSION]);
             }
 
             // Replace tokens in message
@@ -114,7 +116,7 @@ class WhatsappController extends FormController
             if (empty($recipient)) {
                 $this->addFlashMessage('whatsaas.send.error.no_phone', [], 'error');
 
-                return new JsonResponse(['closeModal' => true, 'flashes' => $this->getFlashContent()]);
+                return new JsonResponse(['closeModal' => true, 'flashes' => $this->getFlashContent(), 'v' => self::PLUGIN_VERSION]);
             }
 
             // Normalize phone number
@@ -154,6 +156,11 @@ class WhatsappController extends FormController
                 $details['media_url'] = $mediaUrl;
             }
 
+            $responseData = [
+                'closeModal' => true,
+                'v'          => self::PLUGIN_VERSION,
+            ];
+
             if (true === $result) {
                 $stat->setDetails($details);
                 $this->addFlashMessage('whatsaas.send.success');
@@ -162,11 +169,13 @@ class WhatsappController extends FormController
                 $details['error'] = $result;
                 $stat->setDetails($details);
                 $this->addFlashMessage('whatsaas.send.error.failed_detail', ['%error%' => $result], 'error');
+                $responseData['error'] = $result;
             }
 
             $smsModel->getStatRepository()->saveEntity($stat);
+            $responseData['flashes'] = $this->getFlashContent();
 
-            return new JsonResponse(['closeModal' => true, 'flashes' => $this->getFlashContent()]);
+            return new JsonResponse($responseData);
         }
 
         return new Response('Bad Request', 400);
