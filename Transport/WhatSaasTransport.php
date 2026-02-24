@@ -188,13 +188,24 @@ class WhatSaasTransport implements TransportInterface
         }
 
         $errorMsg = $data['message'] ?? $data['error'] ?? 'Unknown error';
+        $maskedKey = substr($channel['apiKey'], 0, 12).'...'.substr($channel['apiKey'], -4);
         $this->logger->warning('WhatSaaS send failed: '.$errorMsg, [
+            'url'       => $apiUrl.'/api/v1/send',
+            'instance'  => $channel['instanceName'],
+            'apiKey'    => $maskedKey,
             'recipient' => $recipient,
             'httpCode'  => $httpCode,
             'response'  => $response,
         ]);
 
-        return 'WhatSaaS: '.$errorMsg;
+        return sprintf(
+            'WhatSaaS: %s [url=%s, instance=%s, key=%s, http=%d]',
+            $errorMsg,
+            $apiUrl.'/api/v1/send',
+            $channel['instanceName'],
+            $maskedKey,
+            $httpCode
+        );
     }
 
     private function normalizePhoneNumber(string $number): string
