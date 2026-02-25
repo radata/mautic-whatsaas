@@ -135,6 +135,8 @@ class Configuration
                 'apiKey'       => $ch['apiKey'],
                 'instanceName' => $ch['instanceName'],
                 'default'      => !empty($ch['default']),
+                'backend'      => $ch['backend'] ?? 'whatsaas',
+                'apiUrl'       => $ch['apiUrl'] ?? '',
             ];
         }
 

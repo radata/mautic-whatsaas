@@ -91,9 +91,11 @@ class WhatSaasIntegration extends AbstractIntegration
         return json_encode([
             [
                 'name'         => 'My WhatsApp',
-                'apiKey'       => 'sk_live_your-whatsaas-api-key',
                 'instanceName' => 'HW-9908',
                 'default'      => true,
+                'backend'      => 'evolution',
+                'apiUrl'       => 'http://evolution:8080',
+                'apiKey'       => 'your-evolution-api-key',
             ],
         ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
     }

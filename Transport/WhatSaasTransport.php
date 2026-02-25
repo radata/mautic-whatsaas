@@ -124,13 +124,134 @@ class WhatSaasTransport implements TransportInterface
     }
 
     /**
+     * Route to the correct backend for sending.
+     */
+    private function send(
+        string $apiUrl,
+        array $channel,
+        string $recipient,
+        string $type,
+        string $message,
+        ?string $mediaUrl = null,
+    ): bool|string {
+        $backend = $channel['backend'] ?? 'whatsaas';
+
+        if ('evolution' === $backend) {
+            $baseUrl = !empty($channel['apiUrl']) ? $channel['apiUrl'] : $apiUrl;
+
+            return $this->sendViaEvolution($baseUrl, $channel, $recipient, $type, $message, $mediaUrl);
+        }
+
+        return $this->sendViaWhatSaas($apiUrl, $channel, $recipient, $type, $message, $mediaUrl);
+    }
+
+    /**
+     * Send directly via Evolution API.
+     *
+     * Text:  POST /message/sendText/{instance}   {"number":"...","text":"..."}
+     * Media: POST /message/sendMedia/{instance}   {"number":"...","mediatype":"image","caption":"...","media":"url"}
+     * Auth:  apikey: <apiKey>
+     */
+    private function sendViaEvolution(
+        string $apiUrl,
+        array $channel,
+        string $recipient,
+        string $type,
+        string $message,
+        ?string $mediaUrl = null,
+    ): bool|string {
+        $instance = $channel['instanceName'];
+        $number   = ltrim($recipient, '+');
+        $baseUrl  = rtrim($apiUrl, '/');
+
+        if ('text' === $type || empty($mediaUrl)) {
+            $url     = $baseUrl.'/message/sendText/'.$instance;
+            $payload = [
+                'number' => $number,
+                'text'   => $message,
+            ];
+        } else {
+            $url     = $baseUrl.'/message/sendMedia/'.$instance;
+            $payload = [
+                'number'    => $number,
+                'mediatype' => $type,
+                'caption'   => $message,
+                'media'     => $mediaUrl,
+            ];
+        }
+
+        $ch = curl_init();
+        curl_setopt_array($ch, [
+            CURLOPT_URL            => $url,
+            CURLOPT_POST           => true,
+            CURLOPT_POSTFIELDS     => json_encode($payload),
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 30,
+            CURLOPT_HTTPHEADER     => [
+                'Content-Type: application/json',
+                'Accept: application/json',
+                'apikey: '.$channel['apiKey'],
+            ],
+        ]);
+
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $error    = curl_error($ch);
+        curl_close($ch);
+
+        if (!empty($error)) {
+            $this->logger->error('Evolution API cURL error: '.$error);
+
+            return 'Evolution API error: '.$error;
+        }
+
+        $data = json_decode($response, true);
+
+        if (null === $data) {
+            $this->logger->error('Evolution API invalid response', [
+                'url'      => $url,
+                'httpCode' => $httpCode,
+                'response' => substr($response, 0, 500),
+            ]);
+
+            return 'Evolution API: invalid response (HTTP '.$httpCode.')';
+        }
+
+        // Evolution API returns {"key":{"id":"..."},...} on success
+        if (200 === $httpCode || 201 === $httpCode || !empty($data['key']['id'])) {
+            $this->logger->info('Evolution API WhatsApp sent successfully', [
+                'recipient' => $recipient,
+                'type'      => $type,
+                'instance'  => $instance,
+                'messageId' => $data['key']['id'] ?? null,
+            ]);
+
+            return true;
+        }
+
+        $errorMsg = $data['error'] ?? $data['message'] ?? $data['response']['message'] ?? 'Unknown error';
+        if (is_array($errorMsg)) {
+            $errorMsg = implode(', ', $errorMsg);
+        }
+        $this->logger->warning('Evolution API send failed: '.$errorMsg, [
+            'url'       => $url,
+            'instance'  => $instance,
+            'recipient' => $recipient,
+            'httpCode'  => $httpCode,
+            'response'  => $response,
+        ]);
+
+        return sprintf('Evolution API: %s [instance=%s, http=%d]', $errorMsg, $instance, $httpCode);
+    }
+
+    /**
      * Send via WhatSaaS API.
      *
      * POST /api/v1/send
      * Authorization: Bearer <apiKey>
      * Body: {"instanceName":"...","number":"...","type":"text|image|video|document|audio","message":"...","mediaUrl":"..."}
      */
-    private function send(
+    private function sendViaWhatSaas(
         string $apiUrl,
         array $channel,
         string $recipient,
