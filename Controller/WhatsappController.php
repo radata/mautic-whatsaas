@@ -9,12 +9,13 @@ use MauticPlugin\WhatSaasBundle\Transport\Configuration;
 use MauticPlugin\WhatSaasBundle\Transport\ConfigurationException;
 use MauticPlugin\WhatSaasBundle\Transport\WhatSaasTransport;
 use Symfony\Component\HttpFoundation\JsonResponse;
+use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 
 class WhatsappController extends FormController
 {
-    public const PLUGIN_VERSION = '1.7.1';
+    public const PLUGIN_VERSION = '1.7.2';
 
     public function sendWhatsappAction(
         Request $request,
@@ -222,5 +223,46 @@ class WhatsappController extends FormController
         }
 
         return new Response('Bad Request', 400);
+    }
+
+    /**
+     * Redirect to WhatSaaS chat dashboard for a contact.
+     *
+     * Opens the WhatSaaS chat UI for the contact's whatsapp number.
+     * URL: /whatsaas/openChat/{contactId}
+     */
+    public function openChatAction(
+        Configuration $configuration,
+        $objectId = '',
+    ): Response {
+        $leadModel = $this->getModel('lead');
+        $lead      = $leadModel->getEntity($objectId);
+
+        if (!$lead) {
+            return new Response('Contact not found', 404);
+        }
+
+        try {
+            $channel = $configuration->getDefaultChannel();
+        } catch (ConfigurationException $e) {
+            return new Response('WhatSaaS not configured', 500);
+        }
+
+        $urlTemplate = $channel['whatsaasUrl'] ?? '';
+        if (empty($urlTemplate)) {
+            return new Response('WhatSaaS chat URL not configured', 500);
+        }
+
+        // Get phone: whatsapp field → mobile → phone
+        $phone = $lead->getFieldValue('whatsapp') ?: $lead->getMobile() ?: $lead->getPhone();
+        if (empty($phone)) {
+            return new Response('Contact has no phone number', 400);
+        }
+
+        // Strip formatting — WhatSaaS expects bare number (e.g. 31612345678)
+        $phone = preg_replace('/[\s\-\(\)\+]/', '', $phone);
+        $url   = str_replace('{phone}', $phone, $urlTemplate);
+
+        return new RedirectResponse($url);
     }
 }
