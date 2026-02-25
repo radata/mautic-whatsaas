@@ -4,7 +4,6 @@ namespace MauticPlugin\WhatSaasBundle\Integration;
 
 use Mautic\PluginBundle\Integration\AbstractIntegration;
 use Symfony\Component\Form\Extension\Core\Type\TextareaType;
-use Symfony\Component\Form\Extension\Core\Type\TextType;
 
 class WhatSaasIntegration extends AbstractIntegration
 {
@@ -42,20 +41,6 @@ class WhatSaasIntegration extends AbstractIntegration
         }
 
         $builder->add(
-            'api_url',
-            TextType::class,
-            [
-                'label'    => 'whatsaas.config.api_url',
-                'required' => true,
-                'data'     => $data['api_url'] ?? 'http://whats-saas-app:3000',
-                'attr'     => [
-                    'class'       => 'form-control',
-                    'placeholder' => 'http://whats-saas-app:3000',
-                ],
-            ]
-        );
-
-        $builder->add(
             'channels',
             TextareaType::class,
             [
@@ -64,23 +49,9 @@ class WhatSaasIntegration extends AbstractIntegration
                 'data'     => $data['channels'] ?? $this->getChannelsPlaceholder(),
                 'attr'     => [
                     'class'       => 'form-control',
-                    'rows'        => 8,
+                    'rows'        => 16,
                     'placeholder' => $this->getChannelsPlaceholder(),
                     'style'       => 'font-family: monospace; font-size: 12px;',
-                ],
-            ]
-        );
-
-        $builder->add(
-            'webhook_secret',
-            TextType::class,
-            [
-                'label'    => 'whatsaas.config.webhook_secret',
-                'required' => false,
-                'data'     => $data['webhook_secret'] ?? '',
-                'attr'     => [
-                    'class'       => 'form-control',
-                    'placeholder' => 'Optional shared secret for webhook verification',
                 ],
             ]
         );
@@ -90,12 +61,14 @@ class WhatSaasIntegration extends AbstractIntegration
     {
         return json_encode([
             [
-                'name'         => 'My WhatsApp',
-                'instanceName' => 'HW-9908',
-                'default'      => true,
-                'backend'      => 'evolution',
-                'apiUrl'       => 'http://evolution:8080',
-                'apiKey'       => 'your-evolution-api-key',
+                'name'          => 'My WhatsApp',
+                'instanceName'  => 'HW-9908',
+                'default'       => true,
+                'backend'       => 'evolution',
+                'apiUrl'        => 'http://evolution:8080',
+                'apiKey'        => 'your-evolution-api-key',
+                'whatsaasUrl'   => 'https://wa.hollandworx.nl/dashboard/chat/{phone}?instanceId=1',
+                'webhookSecret' => '',
             ],
         ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
     }

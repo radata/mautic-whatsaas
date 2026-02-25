@@ -3,7 +3,7 @@
 namespace MauticPlugin\WhatSaasBundle\Controller\Api;
 
 use Mautic\CoreBundle\Controller\CommonController;
-use Mautic\PluginBundle\Helper\IntegrationHelper;
+use MauticPlugin\WhatSaasBundle\Transport\Configuration;
 use MauticPlugin\WhatSaasBundle\Transport\ConfigurationException;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -15,15 +15,15 @@ use Symfony\Component\HttpFoundation\Request;
  * Configure in WhatSaaS: POST https://your-mautic.com/whatsaas/webhook
  *
  * Events handled:
- *   - messages.upsert    → Log incoming WhatsApp messages as contact activity
- *   - messages.update     → Track delivery/read status for engagement scoring
- *   - connection.update   → Log instance connection state changes
+ *   - messages.upsert    -> Log incoming WhatsApp messages as contact activity
+ *   - messages.update     -> Track delivery/read status for engagement scoring
+ *   - connection.update   -> Log instance connection state changes
  */
 class WebhookController extends CommonController
 {
     public function receiveAction(
         Request $request,
-        IntegrationHelper $integrationHelper,
+        Configuration $configuration,
         LoggerInterface $logger,
     ): JsonResponse {
         if ('POST' !== $request->getMethod()) {
@@ -38,33 +38,27 @@ class WebhookController extends CommonController
             return new JsonResponse(['error' => 'Invalid payload'], 400);
         }
 
-        // Verify webhook secret if configured
-        try {
-            $integration = $integrationHelper->getIntegrationObject('WhatSaas');
-            if (!$integration || !$integration->getIntegrationSettings()->getIsPublished()) {
-                throw new ConfigurationException('WhatSaaS integration is not enabled');
-            }
+        $event    = $payload['event'] ?? '';
+        $data     = $payload['data'] ?? [];
+        $instance = $payload['instance'] ?? '';
 
-            $features = $integration->getIntegrationSettings()->getFeatureSettings();
-            $webhookSecret = $features['webhook_secret'] ?? '';
+        // Verify webhook secret per channel (if configured)
+        try {
+            $channel = $configuration->getChannelByInstance($instance);
+            $webhookSecret = $channel['webhookSecret'] ?? '';
 
             if (!empty($webhookSecret)) {
                 $headerSecret = $request->headers->get('X-Webhook-Secret', '');
                 if (!hash_equals($webhookSecret, $headerSecret)) {
-                    $logger->warning('WhatSaaS webhook: invalid secret');
+                    $logger->warning('WhatSaaS webhook: invalid secret for instance '.$instance);
 
                     return new JsonResponse(['error' => 'Unauthorized'], 401);
                 }
             }
         } catch (ConfigurationException $e) {
-            $logger->warning('WhatSaaS webhook: plugin not configured - '.$e->getMessage());
-
-            return new JsonResponse(['error' => 'Plugin not configured'], 503);
+            // Unknown instance — accept anyway (log for debugging)
+            $logger->debug('WhatSaaS webhook: unknown instance "'.$instance.'" - '.$e->getMessage());
         }
-
-        $event    = $payload['event'] ?? '';
-        $data     = $payload['data'] ?? [];
-        $instance = $payload['instance'] ?? '';
 
         $logger->debug('WhatSaaS webhook received', [
             'event'    => $event,
@@ -72,10 +66,20 @@ class WebhookController extends CommonController
         ]);
 
         // Dispatch to Mautic event system so our subscriber can handle it
-        $this->dispatcher->dispatch(
-            new \MauticPlugin\WhatSaasBundle\Event\WebhookEvent($event, $data, $instance),
-            \MauticPlugin\WhatSaasBundle\WhatSaasEvents::WEBHOOK_RECEIVED
-        );
+        try {
+            $this->dispatcher->dispatch(
+                new \MauticPlugin\WhatSaasBundle\Event\WebhookEvent($event, $data, $instance),
+                \MauticPlugin\WhatSaasBundle\WhatSaasEvents::WEBHOOK_RECEIVED
+            );
+        } catch (\Throwable $e) {
+            $logger->error('WhatSaaS webhook: handler failed - '.$e->getMessage(), [
+                'event'     => $event,
+                'instance'  => $instance,
+                'exception' => $e->getTraceAsString(),
+            ]);
+
+            return new JsonResponse(['success' => false, 'error' => $e->getMessage()], 200);
+        }
 
         return new JsonResponse(['success' => true]);
     }

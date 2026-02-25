@@ -43,14 +43,13 @@ class WhatSaasTransport implements TransportInterface
 
         try {
             $channel = $this->configuration->getDefaultChannel();
-            $apiUrl  = $this->configuration->getApiUrl();
         } catch (ConfigurationException $e) {
             $this->logger->warning('WhatSaaS not configured: '.$e->getMessage());
 
             return $e->getMessage();
         }
 
-        return $this->send($apiUrl, $channel, $number, 'text', $content);
+        return $this->send($channel, $number, 'text', $content);
     }
 
     /**
@@ -72,7 +71,6 @@ class WhatSaasTransport implements TransportInterface
         ?string $instanceName = null,
     ): bool|string {
         try {
-            $apiUrl  = $this->configuration->getApiUrl();
             $channel = $instanceName
                 ? $this->configuration->getChannelByInstance($instanceName)
                 : $this->configuration->getDefaultChannel();
@@ -82,7 +80,7 @@ class WhatSaasTransport implements TransportInterface
             return $e->getMessage();
         }
 
-        return $this->send($apiUrl, $channel, $recipient, $type, $message, $mediaUrl);
+        return $this->send($channel, $recipient, $type, $message, $mediaUrl);
     }
 
     /**
@@ -127,19 +125,17 @@ class WhatSaasTransport implements TransportInterface
      * Route to the correct backend for sending.
      */
     private function send(
-        string $apiUrl,
         array $channel,
         string $recipient,
         string $type,
         string $message,
         ?string $mediaUrl = null,
     ): bool|string {
-        $backend = $channel['backend'] ?? 'whatsaas';
+        $apiUrl  = $channel['apiUrl'];
+        $backend = $channel['backend'] ?? 'evolution';
 
         if ('evolution' === $backend) {
-            $baseUrl = !empty($channel['apiUrl']) ? $channel['apiUrl'] : $apiUrl;
-
-            return $this->sendViaEvolution($baseUrl, $channel, $recipient, $type, $message, $mediaUrl);
+            return $this->sendViaEvolution($apiUrl, $channel, $recipient, $type, $message, $mediaUrl);
         }
 
         return $this->sendViaWhatSaas($apiUrl, $channel, $recipient, $type, $message, $mediaUrl);

@@ -6,7 +6,6 @@ use Mautic\PluginBundle\Helper\IntegrationHelper;
 
 class Configuration
 {
-    private string $apiUrl  = '';
     private array $channels = [];
     private bool $configured = false;
 
@@ -15,15 +14,8 @@ class Configuration
     ) {
     }
 
-    public function getApiUrl(): string
-    {
-        $this->setConfiguration();
-
-        return rtrim($this->apiUrl, '/');
-    }
-
     /**
-     * @return array[] Each channel: ['name' => string, 'apiKey' => string, 'instanceName' => string, 'default' => bool]
+     * @return array[] Each channel with all settings
      */
     public function getChannels(): array
     {
@@ -34,8 +26,6 @@ class Configuration
 
     /**
      * Get the default channel (first one marked default, or first channel).
-     *
-     * @return array{name: string, apiKey: string, instanceName: string, default: bool}
      *
      * @throws ConfigurationException
      */
@@ -49,7 +39,6 @@ class Configuration
             }
         }
 
-        // Fall back to first channel
         if (!empty($this->channels)) {
             return $this->channels[0];
         }
@@ -110,11 +99,6 @@ class Configuration
 
         $features = $integration->getIntegrationSettings()->getFeatureSettings();
 
-        $this->apiUrl = !empty($features['api_url']) ? $features['api_url'] : '';
-        if (empty($this->apiUrl)) {
-            throw new ConfigurationException('WhatSaaS API URL is not configured');
-        }
-
         $channelsJson = $features['channels'] ?? '';
         if (empty($channelsJson)) {
             throw new ConfigurationException('No WhatsApp channels configured');
@@ -125,18 +109,19 @@ class Configuration
             throw new ConfigurationException('Invalid channels JSON configuration');
         }
 
-        // Validate each channel
         foreach ($parsed as $i => $ch) {
-            if (empty($ch['apiKey']) || empty($ch['instanceName'])) {
-                throw new ConfigurationException(sprintf('Channel #%d is missing apiKey or instanceName', $i + 1));
+            if (empty($ch['apiKey']) || empty($ch['instanceName']) || empty($ch['apiUrl'])) {
+                throw new ConfigurationException(sprintf('Channel #%d is missing apiKey, instanceName, or apiUrl', $i + 1));
             }
             $this->channels[] = [
-                'name'         => $ch['name'] ?? $ch['instanceName'],
-                'apiKey'       => $ch['apiKey'],
-                'instanceName' => $ch['instanceName'],
-                'default'      => !empty($ch['default']),
-                'backend'      => $ch['backend'] ?? 'whatsaas',
-                'apiUrl'       => $ch['apiUrl'] ?? '',
+                'name'          => $ch['name'] ?? $ch['instanceName'],
+                'apiKey'        => $ch['apiKey'],
+                'instanceName'  => $ch['instanceName'],
+                'default'       => !empty($ch['default']),
+                'backend'       => $ch['backend'] ?? 'evolution',
+                'apiUrl'        => rtrim($ch['apiUrl'], '/'),
+                'whatsaasUrl'   => $ch['whatsaasUrl'] ?? '',
+                'webhookSecret' => $ch['webhookSecret'] ?? '',
             ];
         }
 

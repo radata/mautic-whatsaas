@@ -114,15 +114,18 @@ class WebhookSubscriber implements EventSubscriberInterface
         $stat->setDetails($details);
 
         try {
-            $this->em->getRepository(Stat::class)->saveEntity($stat);
+            $this->em->persist($stat);
+            $this->em->flush();
 
             $this->logger->info('WhatSaaS webhook: incoming message logged for contact', [
                 'contactId' => $lead->getId(),
                 'phone'     => $phone,
                 'type'      => $messageType,
             ]);
-        } catch (\Exception $e) {
-            $this->logger->error('WhatSaaS webhook: failed to save stat - '.$e->getMessage());
+        } catch (\Throwable $e) {
+            $this->logger->error('WhatSaaS webhook: failed to save stat - '.$e->getMessage(), [
+                'trace' => $e->getTraceAsString(),
+            ]);
         }
     }
 
@@ -194,14 +197,15 @@ class WebhookSubscriber implements EventSubscriberInterface
                 $existingStat->setDetails($details);
 
                 try {
-                    $statRepo->saveEntity($existingStat);
+                    $this->em->persist($existingStat);
+                    $this->em->flush();
 
                     $this->logger->info('WhatSaaS webhook: message status updated', [
                         'contactId' => $lead->getId(),
                         'status'    => $normalizedStatus,
                         'messageId' => $messageId,
                     ]);
-                } catch (\Exception $e) {
+                } catch (\Throwable $e) {
                     $this->logger->error('WhatSaaS webhook: failed to update stat - '.$e->getMessage());
                 }
             }

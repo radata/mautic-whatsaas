@@ -95,7 +95,11 @@ In the plugin settings (Features tab):
 
 ### Channel Configuration
 
-Channels are defined as a JSON array. Each channel represents a WhatsApp number/instance:
+Channels are defined as a JSON array. Each channel represents a WhatsApp number/instance. The plugin supports two backends: **WhatSaaS API** (default) and **Evolution API direct**.
+
+#### WhatSaaS Backend (default)
+
+Routes messages through the WhatSaaS API. Messages appear in the WhatSaaS conversation view.
 
 ```json
 [
@@ -104,12 +108,23 @@ Channels are defined as a JSON array. Each channel represents a WhatsApp number/
     "apiKey": "sk_live_your_api_key_here",
     "instanceName": "my-instance-name",
     "default": true
-  },
+  }
+]
+```
+
+#### Evolution API Direct Backend
+
+Sends directly to Evolution API, bypassing WhatSaaS. More reliable when WhatSaaS is unavailable, but messages won't appear in the WhatSaaS conversation view.
+
+```json
+[
   {
-    "name": "Support Line",
-    "apiKey": "sk_live_another_key",
-    "instanceName": "support-instance",
-    "default": false
+    "name": "Main Business",
+    "instanceName": "HW-9908",
+    "default": true,
+    "backend": "evolution",
+    "apiUrl": "http://evolution:8080",
+    "apiKey": "your-evolution-api-global-key"
   }
 ]
 ```
@@ -117,9 +132,11 @@ Channels are defined as a JSON array. Each channel represents a WhatsApp number/
 | Field | Required | Description |
 |---|---|---|
 | `name` | Yes | Display name shown in dropdowns |
-| `apiKey` | Yes | Bearer token for API authentication (`sk_live_...`) |
-| `instanceName` | Yes | WhatSaaS instance identifier |
+| `apiKey` | Yes | `sk_live_...` for WhatSaaS backend, Evolution global API key for `evolution` backend |
+| `instanceName` | Yes | Evolution API instance name (e.g. `HW-9908`) |
 | `default` | No | Mark one channel as default for campaign sends |
+| `backend` | No | `whatsaas` (default) or `evolution` for direct Evolution API |
+| `apiUrl` | No | Per-channel API URL override. Required for `evolution` backend (e.g. `http://evolution:8080`) |
 
 The channel marked `"default": true` is used for automated campaign sends. If no channel is marked default, the first one is used.
 
@@ -180,21 +197,22 @@ curl -X GET "https://your-mautic.com/api/whatsaas/{smsId}/contact/{contactId}/se
 
 The `channel` query parameter is optional — omit it to use the default channel.
 
-### WhatSaaS Send API
+### Send API Details
 
-The plugin calls the WhatSaaS API with:
+Depending on the configured `backend`, the plugin uses different APIs:
 
-```bash
+**WhatSaaS backend** (`"backend": "whatsaas"` or omitted):
+```
 POST {api_url}/api/v1/send
 Authorization: Bearer {channel.apiKey}
-Content-Type: application/json
+{"instanceName":"...","number":"...","type":"text","message":"Hello!"}
+```
 
-{
-  "instanceName": "my-instance",
-  "number": "5511999999999",
-  "type": "text",
-  "message": "Hello!"
-}
+**Evolution backend** (`"backend": "evolution"`):
+```
+POST {channel.apiUrl}/message/sendText/{instanceName}
+apikey: {channel.apiKey}
+{"number":"...","text":"Hello!"}
 ```
 
 Supported types: `text`, `image`, `video`, `document`, `audio`. For non-text types, include `mediaUrl` with a public URL.
@@ -207,9 +225,48 @@ The plugin exposes a webhook endpoint to receive events from WhatSaaS:
 POST https://your-mautic.com/whatsaas/webhook
 ```
 
-### Setup in WhatSaaS
+### Setup
 
-Configure your WhatSaaS instance to send webhook events to the URL above. If you set a **Webhook Secret** in the plugin settings, also configure the same secret as the `X-Webhook-Secret` header in WhatSaaS.
+Evolution API has two webhook mechanisms. Both can be active simultaneously:
+
+| Webhook | Configured via | Typical destination |
+|---|---|---|
+| **Instance webhook** | Evolution API `/webhook/set/{instance}` or WhatSaaS instance setup | WhatSaaS (`https://your-whatsaas.com/api/webhook/evolution`) |
+| **Global webhook** | Evolution `.env` `WEBHOOK_GLOBAL_URL` | Mautic (`http://mautic_nginx/whatsaas/webhook`) |
+
+**Recommended setup**: Use the global webhook for Mautic and the instance webhook for WhatSaaS.
+
+In your Evolution `.env`:
+
+```env
+WEBHOOK_GLOBAL_ENABLED=true
+WEBHOOK_GLOBAL_URL=http://mautic_nginx/whatsaas/webhook
+WEBHOOK_GLOBAL_WEBHOOK_BY_EVENTS=false
+```
+
+If you set a **Webhook Secret** in the plugin settings, also configure the same secret as the `X-Webhook-Secret` header in your webhook source.
+
+> **Important: Instance webhook URL is stored at creation time.** When WhatSaaS creates an Evolution instance, it stores the webhook URL from `NEXT_PUBLIC_WEBHOOK_URL` at that moment. Changing the env var later does **not** update existing instances. To fix a stored webhook URL, you must update it via the Evolution API:
+>
+> ```bash
+> # Check current webhook (use mapped port from host, e.g. 58015)
+> curl -s "http://localhost:58015/webhook/find/HW-9908" \
+>   -H "apikey: YOUR_EVOLUTION_API_KEY" | python3 -m json.tool
+>
+> # Update stored webhook URL (note: data must be nested under "webhook")
+> curl -s -X POST "http://localhost:58015/webhook/set/HW-9908" \
+>   -H "apikey: YOUR_EVOLUTION_API_KEY" \
+>   -H "Content-Type: application/json" \
+>   -d '{
+>     "webhook": {
+>       "enabled": true,
+>       "url": "https://your-whatsaas.com/api/webhook/evolution",
+>       "webhookByEvents": false,
+>       "webhookBase64": true,
+>       "events": ["MESSAGES_UPSERT","MESSAGES_UPDATE","CONNECTION_UPDATE"]
+>     }
+>   }'
+> ```
 
 ### Events Handled
 

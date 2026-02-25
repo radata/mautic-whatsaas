@@ -3,7 +3,7 @@
 return [
     'name'        => 'WhatSaaS WhatsApp',
     'description' => 'Multi-channel WhatsApp transport for WhatSaaS / Evolution API with webhook support',
-    'version'     => '1.6.0',
+    'version'     => '1.7.0',
     'author'      => 'Radata',
 
     'routes' => [
