@@ -9,13 +9,12 @@ use MauticPlugin\WhatSaasBundle\Transport\Configuration;
 use MauticPlugin\WhatSaasBundle\Transport\ConfigurationException;
 use MauticPlugin\WhatSaasBundle\Transport\WhatSaasTransport;
 use Symfony\Component\HttpFoundation\JsonResponse;
-use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 
 class WhatsappController extends FormController
 {
-    public const PLUGIN_VERSION = '1.7.2';
+    public const PLUGIN_VERSION = '1.7.3';
 
     public function sendWhatsappAction(
         Request $request,
@@ -226,43 +225,53 @@ class WhatsappController extends FormController
     }
 
     /**
-     * Redirect to WhatSaaS chat dashboard for a contact.
+     * Open WhatSaaS chat dashboard for a contact.
      *
-     * Opens the WhatSaaS chat UI for the contact's whatsapp number.
+     * Returns a JSON redirect that Mautic's AJAX framework processes
+     * via window.location (avoids CORS issues from HTTP 302 redirects).
+     *
      * URL: /whatsaas/openChat/{contactId}
      */
     public function openChatAction(
         Configuration $configuration,
         $objectId = '',
-    ): Response {
+    ): JsonResponse {
         $leadModel = $this->getModel('lead');
         $lead      = $leadModel->getEntity($objectId);
 
         if (!$lead) {
-            return new Response('Contact not found', 404);
+            $this->addFlashMessage('mautic.lead.lead.error.notfound', [], 'error');
+
+            return new JsonResponse(['flashes' => $this->getFlashContent()]);
         }
 
         try {
             $channel = $configuration->getDefaultChannel();
         } catch (ConfigurationException $e) {
-            return new Response('WhatSaaS not configured', 500);
+            $this->addFlashMessage('whatsaas.send.error.not_configured', ['%error%' => $e->getMessage()], 'error');
+
+            return new JsonResponse(['flashes' => $this->getFlashContent()]);
         }
 
         $urlTemplate = $channel['whatsaasUrl'] ?? '';
         if (empty($urlTemplate)) {
-            return new Response('WhatSaaS chat URL not configured', 500);
+            $this->addFlashMessage('whatsaas.send.error.not_configured', ['%error%' => 'whatsaasUrl not set'], 'error');
+
+            return new JsonResponse(['flashes' => $this->getFlashContent()]);
         }
 
         // Get phone: whatsapp field → mobile → phone
         $phone = $lead->getFieldValue('whatsapp') ?: $lead->getMobile() ?: $lead->getPhone();
         if (empty($phone)) {
-            return new Response('Contact has no phone number', 400);
+            $this->addFlashMessage('whatsaas.send.error.no_phone', [], 'error');
+
+            return new JsonResponse(['flashes' => $this->getFlashContent()]);
         }
 
         // Strip formatting — WhatSaaS expects bare number (e.g. 31612345678)
         $phone = preg_replace('/[\s\-\(\)\+]/', '', $phone);
         $url   = str_replace('{phone}', $phone, $urlTemplate);
 
-        return new RedirectResponse($url);
+        return new JsonResponse(['redirect' => $url]);
     }
 }
