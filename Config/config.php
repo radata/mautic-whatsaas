@@ -3,7 +3,7 @@
 return [
     'name'        => 'WhatSaaS WhatsApp',
     'description' => 'Multi-channel WhatsApp transport for WhatSaaS / Evolution API with webhook support',
-    'version'     => '1.7.0',
+    'version'     => '1.7.1',
     'author'      => 'Radata',
 
     'routes' => [
@@ -63,6 +63,7 @@ return [
                     'mautic.helper.integration',
                     'translator',
                     'router',
+                    'mautic.sms.transport.whatsaas.configuration',
                 ],
             ],
             'mautic.whatsaas.subscriber.webhook' => [

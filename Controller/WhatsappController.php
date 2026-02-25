@@ -14,7 +14,7 @@ use Symfony\Component\HttpFoundation\Response;
 
 class WhatsappController extends FormController
 {
-    public const PLUGIN_VERSION = '1.6.0';
+    public const PLUGIN_VERSION = '1.7.1';
 
     public function sendWhatsappAction(
         Request $request,

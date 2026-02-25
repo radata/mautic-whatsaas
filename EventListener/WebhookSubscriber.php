@@ -12,11 +12,16 @@ use Psr\Log\LoggerInterface;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 
 /**
- * Processes incoming WhatSaaS webhook events:
+ * Processes incoming webhook events from Evolution API and WhatSaaS:
  *
- * 1. messages.upsert  → Incoming WhatsApp messages logged as contact activity
- * 3. messages.update   → Read receipts tracked for engagement scoring
- * 4. connection.update → Instance status changes logged
+ * Evolution API events:
+ *   - messages.upsert    → Incoming WhatsApp messages logged as contact activity
+ *   - messages.update    → Read receipts tracked for engagement scoring
+ *   - connection.update  → Instance status changes logged
+ *
+ * WhatSaaS outgoing webhook events:
+ *   - message.received   → Incoming WhatsApp message (same handler as messages.upsert)
+ *   - message.sent       → Outgoing message sent from WhatSaaS chat UI
  */
 class WebhookSubscriber implements EventSubscriberInterface
 {
@@ -36,10 +41,24 @@ class WebhookSubscriber implements EventSubscriberInterface
 
     public function onWebhookReceived(WebhookEvent $event): void
     {
+        $this->logger->debug('WhatSaaS webhook: processing event', [
+            'event'    => $event->getEventType(),
+            'instance' => $event->getInstance(),
+        ]);
+
         match ($event->getEventType()) {
-            'messages.upsert'  => $this->handleIncomingMessage($event),
-            'messages.update'  => $this->handleMessageStatus($event),
-            'connection.update' => $this->handleConnectionUpdate($event),
+            // Evolution API events
+            'messages.upsert'    => $this->handleMessage($event),
+            'messages.update'    => $this->handleMessageStatus($event),
+            'connection.update'  => $this->handleConnectionUpdate($event),
+            // WhatSaaS outgoing webhook events
+            'message.received'   => $this->handleMessage($event),
+            'message.sent'       => $this->handleMessage($event),
+            'message.status'     => $this->handleMessageStatus($event),
+            'contact.updated'    => $this->logger->debug('WhatSaaS webhook: contact updated', [
+                'instance' => $event->getInstance(),
+            ]),
+            'connection.status'  => $this->handleConnectionUpdate($event),
             default => $this->logger->debug('WhatSaaS webhook: unhandled event type', [
                 'event' => $event->getEventType(),
             ]),
@@ -47,20 +66,21 @@ class WebhookSubscriber implements EventSubscriberInterface
     }
 
     /**
-     * Handle incoming WhatsApp messages — log as contact activity.
+     * Handle WhatsApp messages (incoming and outgoing) — log as contact activity.
+     *
+     * Handles both:
+     * - Evolution API: messages.upsert
+     * - WhatSaaS: message.received, message.sent
      *
      * Extracts phone number from JID (e.g. 31612345678@s.whatsapp.net → +31612345678),
-     * finds the Mautic contact by mobile or phone field, and creates an SMS Stat entry.
+     * finds the Mautic contact by whatsapp/mobile/phone field, and creates an SMS Stat entry.
      */
-    private function handleIncomingMessage(WebhookEvent $event): void
+    private function handleMessage(WebhookEvent $event): void
     {
         $data = $event->getData();
         $key  = $data['key'] ?? [];
 
-        // Only process incoming messages (not our own outgoing)
-        if (!empty($key['fromMe'])) {
-            return;
-        }
+        $fromMe = !empty($key['fromMe']);
 
         // Skip group messages
         $remoteJid = $key['remoteJid'] ?? '';
@@ -88,15 +108,19 @@ class WebhookSubscriber implements EventSubscriberInterface
 
         $text = $this->extractMessageText($message, $messageType);
 
+        $direction = $fromMe ? 'outgoing' : 'incoming';
+        $source    = $fromMe ? 'whatsapp_outgoing' : 'whatsapp_incoming';
+        $prefix    = $fromMe ? 'wa_out_' : 'wa_in_';
+
         // Create stat entry for contact activity timeline
         $stat = new Stat();
         $stat->setDateSent(new \DateTime('@'.$timestamp));
         $stat->setLead($lead);
-        $stat->setTrackingHash(str_replace('.', '', uniqid('wa_in_', true)));
-        $stat->setSource('whatsapp_incoming');
+        $stat->setTrackingHash(str_replace('.', '', uniqid($prefix, true)));
+        $stat->setSource($source);
 
         $details = [
-            'direction'    => 'incoming',
+            'direction'    => $direction,
             'channel'      => 'whatsapp',
             'instance'     => $event->getInstance(),
             'phone'        => $phone,
@@ -117,10 +141,11 @@ class WebhookSubscriber implements EventSubscriberInterface
             $this->em->persist($stat);
             $this->em->flush();
 
-            $this->logger->info('WhatSaaS webhook: incoming message logged for contact', [
+            $this->logger->info('WhatSaaS webhook: '.$direction.' message logged for contact', [
                 'contactId' => $lead->getId(),
                 'phone'     => $phone,
                 'type'      => $messageType,
+                'direction' => $direction,
             ]);
         } catch (\Throwable $e) {
             $this->logger->error('WhatSaaS webhook: failed to save stat - '.$e->getMessage(), [
