@@ -48,11 +48,26 @@ class WebhookController extends CommonController
             $webhookSecret = $channel['webhookSecret'] ?? '';
 
             if (!empty($webhookSecret)) {
-                $headerSecret = $request->headers->get('X-Webhook-Secret', '');
-                if (!hash_equals($webhookSecret, $headerSecret)) {
-                    $logger->warning('WhatSaaS webhook: invalid secret for instance '.$instance);
+                $rawBody = $request->getContent();
+                $signatureHeader = $request->headers->get('X-Webhook-Signature', '');
 
-                    return new JsonResponse(['error' => 'Unauthorized'], 401);
+                if (!empty($signatureHeader)) {
+                    $providedSignature = str_replace('sha256=', '', $signatureHeader);
+                    $expectedSignature = hash_hmac('sha256', $rawBody, $webhookSecret);
+
+                    if (!hash_equals($expectedSignature, $providedSignature)) {
+                        $logger->warning('WhatSaaS webhook: invalid HMAC signature for instance '.$instance);
+
+                        return new JsonResponse(['error' => 'Unauthorized'], 401);
+                    }
+                } else {
+                    // Backward compatibility with older plain-secret header.
+                    $headerSecret = $request->headers->get('X-Webhook-Secret', '');
+                    if (!hash_equals($webhookSecret, $headerSecret)) {
+                        $logger->warning('WhatSaaS webhook: invalid secret for instance '.$instance);
+
+                        return new JsonResponse(['error' => 'Unauthorized'], 401);
+                    }
                 }
             }
         } catch (ConfigurationException $e) {

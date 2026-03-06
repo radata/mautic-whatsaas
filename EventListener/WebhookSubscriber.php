@@ -41,12 +41,15 @@ class WebhookSubscriber implements EventSubscriberInterface
 
     public function onWebhookReceived(WebhookEvent $event): void
     {
+        $eventType = $this->normalizeEventType($event->getEventType());
+
         $this->logger->debug('WhatSaaS webhook: processing event', [
-            'event'    => $event->getEventType(),
+            'event'    => $eventType,
+            'rawEvent' => $event->getEventType(),
             'instance' => $event->getInstance(),
         ]);
 
-        match ($event->getEventType()) {
+        match ($eventType) {
             // Evolution API events
             'messages.upsert'    => $this->handleMessage($event),
             'messages.update'    => $this->handleMessageStatus($event),
@@ -60,7 +63,7 @@ class WebhookSubscriber implements EventSubscriberInterface
             ]),
             'connection.status'  => $this->handleConnectionUpdate($event),
             default => $this->logger->debug('WhatSaaS webhook: unhandled event type', [
-                'event' => $event->getEventType(),
+                'event' => $eventType,
             ]),
         };
     }
@@ -80,11 +83,20 @@ class WebhookSubscriber implements EventSubscriberInterface
         $data = $event->getData();
         $key  = $data['key'] ?? [];
 
-        $fromMe = !empty($key['fromMe']);
+        // Evolution payload: key.fromMe
+        // WhatSaaS outgoing webhook payload: fromMe
+        $fromMe = array_key_exists('fromMe', $key)
+            ? !empty($key['fromMe'])
+            : !empty($data['fromMe']);
 
         // Skip group messages
-        $remoteJid = $key['remoteJid'] ?? '';
-        if (str_contains($remoteJid, '@g.us')) {
+        $remoteJid = $this->extractRemoteJid($data, $key);
+        if (
+            empty($remoteJid) ||
+            str_contains($remoteJid, '@g.us') ||
+            str_contains($remoteJid, '@newsletter') ||
+            'status@broadcast' === $remoteJid
+        ) {
             return;
         }
 
@@ -103,20 +115,41 @@ class WebhookSubscriber implements EventSubscriberInterface
         // Extract message content
         $message     = $data['message'] ?? [];
         $messageType = $data['messageType'] ?? 'conversation';
+        $messageId   = $key['id'] ?? ($data['messageId'] ?? '');
         $pushName    = $data['pushName'] ?? '';
-        $timestamp   = $data['messageTimestamp'] ?? time();
+        $timestamp   = $data['messageTimestamp'] ?? ($data['timestamp'] ?? time());
 
-        $text = $this->extractMessageText($message, $messageType);
+        // WhatSaaS payload includes plain text in data.text
+        $text = $data['text'] ?? $this->extractMessageText($message, $messageType);
 
         $direction = $fromMe ? 'outgoing' : 'incoming';
         $source    = $fromMe ? 'whatsapp_outgoing' : 'whatsapp_incoming';
         $prefix    = $fromMe ? 'wa_out_' : 'wa_in_';
 
+        $trackingHash = !empty($messageId)
+            ? $prefix.hash('sha1', (string) $messageId)
+            : str_replace('.', '', uniqid($prefix, true));
+
+        // Deduplicate repeated webhook deliveries for the same WhatsApp message ID.
+        if (!empty($messageId)) {
+            $existing = $this->em->getRepository(Stat::class)->findOneBy(['trackingHash' => $trackingHash]);
+            if ($existing) {
+                $this->logger->debug('WhatSaaS webhook: duplicate message ignored', [
+                    'event'      => $event->getEventType(),
+                    'messageId'  => $messageId,
+                    'contactId'  => $lead->getId(),
+                    'trackingHash' => $trackingHash,
+                ]);
+
+                return;
+            }
+        }
+
         // Create stat entry for contact activity timeline
         $stat = new Stat();
-        $stat->setDateSent(new \DateTime('@'.$timestamp));
+        $stat->setDateSent($this->parseTimestamp($timestamp));
         $stat->setLead($lead);
-        $stat->setTrackingHash(str_replace('.', '', uniqid($prefix, true)));
+        $stat->setTrackingHash($trackingHash);
         $stat->setSource($source);
 
         $details = [
@@ -127,7 +160,7 @@ class WebhookSubscriber implements EventSubscriberInterface
             'pushName'     => $pushName,
             'messageType'  => $messageType,
             'message'      => $text,
-            'messageId'    => $key['id'] ?? '',
+            'messageId'    => (string) $messageId,
         ];
 
         // Include media info if present
@@ -164,22 +197,45 @@ class WebhookSubscriber implements EventSubscriberInterface
     {
         $data = $event->getData();
 
-        // Can be a single update or array of updates
-        $updates = isset($data['key']) ? [$data] : ($data ?? []);
+        // Can be:
+        // - Evolution: single update with key/status
+        // - Evolution: array of updates
+        // - WhatSaaS outgoing webhook: {messageId, status, remoteJid, ...}
+        if (isset($data['key']) || isset($data['messageId']) || isset($data['status'])) {
+            $updates = [$data];
+        } elseif (array_is_list($data)) {
+            $updates = $data;
+        } else {
+            $updates = [];
+        }
 
         foreach ($updates as $update) {
-            $key    = $update['key'] ?? [];
-            $status = $update['status'] ?? '';
-
-            // Only track outgoing message statuses (our sent messages)
-            if (empty($key['fromMe'])) {
+            if (!is_array($update)) {
                 continue;
             }
 
-            $remoteJid = $key['remoteJid'] ?? '';
-            $messageId = $key['id'] ?? '';
+            $key    = $update['key'] ?? [];
+            $status = $update['status'] ?? ($update['update']['status'] ?? ($update['ack'] ?? null));
 
-            if (empty($messageId) || str_contains($remoteJid, '@g.us')) {
+            $fromMe = array_key_exists('fromMe', $key)
+                ? !empty($key['fromMe'])
+                : (array_key_exists('fromMe', $update) ? !empty($update['fromMe']) : true);
+
+            // Only track outgoing message statuses (our sent messages)
+            if (!$fromMe) {
+                continue;
+            }
+
+            $remoteJid = $this->extractRemoteJid($update, $key);
+            $messageId = $key['id'] ?? ($update['messageId'] ?? '');
+
+            if (
+                empty($messageId) ||
+                empty($remoteJid) ||
+                str_contains($remoteJid, '@g.us') ||
+                str_contains($remoteJid, '@newsletter') ||
+                'status@broadcast' === $remoteJid
+            ) {
                 continue;
             }
 
@@ -188,13 +244,10 @@ class WebhookSubscriber implements EventSubscriberInterface
                 continue;
             }
 
-            // Normalize status names from Evolution API
-            $normalizedStatus = match (strtoupper($status)) {
-                'SENT', 'SERVER_ACK'        => 'sent',
-                'DELIVERY_ACK', 'DELIVERED'  => 'delivered',
-                'READ', 'PLAYED'            => 'read',
-                default                     => $status,
-            };
+            $normalizedStatus = $this->normalizeMessageStatus($status);
+            if (empty($normalizedStatus)) {
+                continue;
+            }
 
             $lead = $this->findContactByPhone($phone);
             if (!$lead) {
@@ -204,21 +257,27 @@ class WebhookSubscriber implements EventSubscriberInterface
             // Find existing stat entry for this contact and update details
             $statRepo = $this->em->getRepository(Stat::class);
 
-            // Look for recent outgoing stats for this contact
-            $qb = $statRepo->createQueryBuilder('s')
-                ->where('s.lead = :lead')
-                ->andWhere('s.source = :source')
-                ->setParameter('lead', $lead)
-                ->setParameter('source', 'api')
-                ->orderBy('s.dateSent', 'DESC')
-                ->setMaxResults(1);
+            $trackingHash = 'wa_out_'.hash('sha1', (string) $messageId);
+            $existingStat = $statRepo->findOneBy(['trackingHash' => $trackingHash]);
 
-            $existingStat = $qb->getQuery()->getOneOrNullResult();
+            // Fallback for older stats before deterministic tracking hash.
+            if (!$existingStat) {
+                $qb = $statRepo->createQueryBuilder('s')
+                    ->where('s.lead = :lead')
+                    ->andWhere('s.source IN (:sources)')
+                    ->setParameter('lead', $lead)
+                    ->setParameter('sources', ['whatsapp_outgoing', 'api'])
+                    ->orderBy('s.dateSent', 'DESC')
+                    ->setMaxResults(1);
+
+                $existingStat = $qb->getQuery()->getOneOrNullResult();
+            }
 
             if ($existingStat) {
                 $details = $existingStat->getDetails() ?? [];
                 $details['whatsapp_status'] = $normalizedStatus;
                 $details['status_updated']  = (new \DateTime())->format('Y-m-d H:i:s');
+                $details['messageId']       = $details['messageId'] ?? (string) $messageId;
                 $existingStat->setDetails($details);
 
                 try {
@@ -260,6 +319,8 @@ class WebhookSubscriber implements EventSubscriberInterface
     private function jidToPhone(string $jid): string
     {
         $number = explode('@', $jid)[0] ?? '';
+        $number = explode(':', $number)[0] ?? '';
+        $number = preg_replace('/\D+/', '', $number);
 
         if (empty($number) || !is_numeric($number)) {
             return '';
@@ -324,6 +385,95 @@ class WebhookSubscriber implements EventSubscriberInterface
         }
 
         return null;
+    }
+
+    private function normalizeEventType(string $eventType): string
+    {
+        $normalized = strtolower(str_replace('_', '.', trim($eventType)));
+
+        return match ($normalized) {
+            'message.upsert' => 'messages.upsert',
+            'message.update' => 'messages.update',
+            'chat.update' => 'chats.update',
+            'contact.update' => 'contacts.update',
+            default => $normalized,
+        };
+    }
+
+    private function extractRemoteJid(array $data, array $key = []): string
+    {
+        $candidates = [
+            $key['remoteJidAlt'] ?? null,
+            $data['remoteJidAlt'] ?? null,
+            $key['remoteJid'] ?? null,
+            $data['remoteJid'] ?? null,
+            $key['participant'] ?? null,
+            $data['participant'] ?? null,
+        ];
+
+        foreach ($candidates as $candidate) {
+            if (is_string($candidate) && '' !== trim($candidate)) {
+                return $candidate;
+            }
+        }
+
+        return '';
+    }
+
+    private function parseTimestamp(mixed $timestamp): \DateTime
+    {
+        if (is_numeric($timestamp)) {
+            $seconds = (int) $timestamp;
+            if ($seconds > 9999999999) {
+                $seconds = (int) floor($seconds / 1000);
+            }
+
+            return new \DateTime('@'.$seconds);
+        }
+
+        if (is_string($timestamp) && '' !== trim($timestamp)) {
+            try {
+                return new \DateTime($timestamp);
+            } catch (\Throwable) {
+                // Fall through to now.
+            }
+        }
+
+        return new \DateTime();
+    }
+
+    private function normalizeMessageStatus(mixed $status): string
+    {
+        if (is_numeric($status)) {
+            $value = (int) $status;
+
+            return match (true) {
+                $value <= 1 => 'sent',
+                2 === $value => 'delivered',
+                $value >= 3 => 'read',
+                default => '',
+            };
+        }
+
+        if (!is_string($status)) {
+            return '';
+        }
+
+        $normalized = strtoupper(trim($status));
+        if ('' === $normalized) {
+            return '';
+        }
+
+        if (preg_match('/^-?\d+$/', $normalized)) {
+            return $this->normalizeMessageStatus((int) $normalized);
+        }
+
+        return match ($normalized) {
+            'SENT', 'SERVER_ACK', 'PENDING', 'ACK_SERVER' => 'sent',
+            'DELIVERY_ACK', 'DELIVERED', 'ACK_DEVICE', 'DELIVERY_RECEIPT' => 'delivered',
+            'READ', 'PLAYED', 'READ_ACK', 'ACK_READ', 'READ_RECEIPT', 'PLAYED_ACK' => 'read',
+            default => '',
+        };
     }
 
     /**
