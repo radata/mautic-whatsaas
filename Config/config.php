@@ -3,7 +3,7 @@
 return [
     'name'        => 'WhatSaaS WhatsApp',
     'description' => 'Multi-channel WhatsApp transport for WhatSaaS / Evolution API with webhook support',
-    'version'     => '1.7.4',
+    'version'     => '1.7.5',
     'author'      => 'Radata',
 
     'routes' => [
@@ -85,6 +85,10 @@ return [
                 'arguments' => [
                     'mautic.helper.integration',
                 ],
+            ],
+            'mautic.whatsaas.subscriber.timeline' => [
+                'class'     => \MauticPlugin\WhatSaasBundle\EventListener\TimelineSubscriber::class,
+                'arguments' => [],
             ],
         ],
         'forms' => [

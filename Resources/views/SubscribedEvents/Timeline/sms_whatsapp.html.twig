@@ -1,0 +1,60 @@
+{% set item = event.extra.stat is defined ? event.extra.stat : false %}
+{% if item %}
+    {% set details = item.details is defined ? item.details : {} %}
+    {% if details is not iterable %}
+        {% if details is same as(null) or details is same as(false) %}
+            {% set details = {} %}
+        {% else %}
+            {% set details = details|json_decode %}
+            {% if details is not iterable %}
+                {% set details = {} %}
+            {% endif %}
+        {% endif %}
+    {% endif %}
+
+    {% set whatsappStatus = details.whatsapp_status is defined and details.whatsapp_status is not empty
+        ? details.whatsapp_status|lower
+        : null %}
+    {% set messageBody = item.message is defined and item.message is not empty
+        ? item.message
+        : (details.message is defined and details.message is not empty ? details.message : null) %}
+
+    <dl class="dl-horizontal">
+        <dt>{{ 'mautic.sms.timeline.status'|trans }}</dt>
+        <dd>
+            {% if item.is_failed is defined and item.is_failed is not empty %}
+                {{ 'mautic.email.stat.failed'|trans }}
+            {% elseif whatsappStatus == 'read' %}
+                {{ 'whatsaas.timeline.status.read'|trans }}
+            {% elseif whatsappStatus == 'delivered' %}
+                {{ 'whatsaas.timeline.status.delivered'|trans }}
+            {% elseif whatsappStatus == 'sent' %}
+                {{ 'whatsaas.timeline.status.sent'|trans }}
+            {% else %}
+                {{ 'mautic.email.send'|trans }}
+            {% endif %}
+        </dd>
+
+        <dt>{{ 'mautic.sms.timeline.type'|trans }}</dt>
+        <dd>{{ item.type|default('')|trans }}</dd>
+
+        {% if details.direction is defined and details.direction is not empty %}
+            <dt>{{ 'whatsaas.timeline.direction'|trans }}</dt>
+            <dd>{{ ('whatsaas.timeline.direction.' ~ details.direction)|trans }}</dd>
+        {% endif %}
+
+        {% if details.instance is defined and details.instance is not empty %}
+            <dt>{{ 'whatsaas.timeline.instance'|trans }}</dt>
+            <dd>{{ details.instance }}</dd>
+        {% endif %}
+    </dl>
+
+    {% if messageBody %}
+        <div class="small">
+            <hr />
+            <strong>{{ 'mautic.sms.timeline.content.heading'|trans }}</strong>
+            <br />
+            {{ messageBody }}
+        </div>
+    {% endif %}
+{% endif %}
